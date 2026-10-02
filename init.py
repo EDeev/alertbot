@@ -20,6 +20,9 @@ AM_TOKEN = os.environ["AM_TOKEN"]
 PROM_TOKEN = os.environ["PROM_TOKEN"]
 ALERT_POLL_SECONDS = int(os.environ.get("ALERT_POLL_SECONDS", "45"))
 ALERT_HTTP_TIMEOUT = int(os.environ.get("ALERT_HTTP_TIMEOUT", "15"))
+# After this many failed polls in a row the bot reports that monitoring itself is unreachable
+ALERT_WATCHDOG_FAILURES = int(os.environ.get("ALERT_WATCHDOG_FAILURES", "4"))
+DB_PATH = os.environ.get("ALERTBOT_DB", "notifications.db")
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())

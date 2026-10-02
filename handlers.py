@@ -10,12 +10,12 @@ from aiogram import BaseMiddleware, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
-from init import (ALERT_HTTP_TIMEOUT, ALERT_POLL_SECONDS, ALLOWED_IDS, AM_ALERTS_URL,
-                  AM_TOKEN, PROM_QUERY_URL, PROM_TOKEN, bot)
+from init import (ALERT_HTTP_TIMEOUT, ALERT_POLL_SECONDS, ALERT_WATCHDOG_FAILURES, ALLOWED_IDS,
+                  AM_ALERTS_URL, AM_TOKEN, DB_PATH, PROM_QUERY_URL, PROM_TOKEN, bot)
 from sql import DatabaseManager
 
 router = Router()
-db = DatabaseManager()
+db = DatabaseManager(DB_PATH)
 log = logging.getLogger(__name__)
 
 # Node names as used in Prometheus' "server" label — match your own scrape config.
@@ -128,8 +128,14 @@ async def cmd_certs(msg: Message):
 # ======================================================================
 #  Prometheus
 # ======================================================================
+def _auth(token: str) -> dict:
+    """Token goes in the Authorization header, not in the URL (URLs end up in proxy logs)."""
+    return {"Authorization": f"Bearer {token}"}
+
+
 async def _promq(session: aiohttp.ClientSession, query: str) -> List[dict]:
-    async with session.get(PROM_QUERY_URL, params={"query": query, "token": PROM_TOKEN},
+    async with session.get(PROM_QUERY_URL, params={"query": query},
+                           headers=_auth(PROM_TOKEN),
                            timeout=aiohttp.ClientTimeout(total=ALERT_HTTP_TIMEOUT)) as r:
         r.raise_for_status()
         j = await r.json()
@@ -277,8 +283,8 @@ def _fmt_resolved(name: str) -> str:
 
 
 async def _fetch_alerts(session: aiohttp.ClientSession) -> List[dict]:
-    params = {"token": AM_TOKEN, "active": "true", "silenced": "false", "inhibited": "false"}
-    async with session.get(AM_ALERTS_URL, params=params,
+    params = {"active": "true", "silenced": "false", "inhibited": "false"}
+    async with session.get(AM_ALERTS_URL, params=params, headers=_auth(AM_TOKEN),
                            timeout=aiohttp.ClientTimeout(total=ALERT_HTTP_TIMEOUT)) as r:
         r.raise_for_status()
         return await r.json()
@@ -304,30 +310,67 @@ async def render_active_alerts() -> str:
     return f"<b>Активные алерты: {len(firing)}</b>\n\n" + "\n\n".join(_fmt_firing(a) for a in firing)
 
 
+def _fmt_watchdog_down(error: str) -> str:
+    return ("<b>Мониторинг недоступен</b>\nAlertmanager не отвечает, о новых проблемах бот сейчас не узнает.\n"
+            f"Последняя ошибка: {html.escape(error)}")
+
+
+def _fmt_watchdog_up() -> str:
+    return "<b>Мониторинг снова доступен</b>"
+
+
+async def process_alerts(data: List[dict]) -> None:
+    """One poll: announce new firing alerts and alerts that have resolved since the last poll."""
+    current = {}
+    for a in data:
+        if a.get("status", {}).get("state") != "active":
+            continue
+        fp = a.get("fingerprint")
+        if not fp:
+            continue
+        current[fp] = a
+        if db.get_alert_status(fp) != "firing":
+            await _broadcast(_fmt_firing(a))
+            db.upsert_alert(fp, "firing", a.get("labels", {}).get("alertname", "alert"))
+    for fp, name in db.list_firing_fingerprints():
+        if fp not in current:
+            await _broadcast(_fmt_resolved(name))
+            db.upsert_alert(fp, "resolved", name)
+    db.purge_old_resolved()
+
+
+class Watchdog:
+    """Counts failed polls in a row; reports once when monitoring is lost and once when it is back."""
+
+    def __init__(self, threshold: int):
+        self.threshold = threshold
+        self.failures = 0
+        self.reported = False
+
+    async def failed(self, error: str) -> None:
+        self.failures += 1
+        if self.failures >= self.threshold and not self.reported:
+            self.reported = True
+            await _broadcast(_fmt_watchdog_down(error))
+
+    async def ok(self) -> None:
+        if self.reported:
+            await _broadcast(_fmt_watchdog_up())
+        self.failures = 0
+        self.reported = False
+
+
 async def alert_poller():
     log.info("alert poller started (every %ss)", ALERT_POLL_SECONDS)
+    watchdog = Watchdog(ALERT_WATCHDOG_FAILURES)
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                data = await _fetch_alerts(session)
-                current = {}
-                for a in data:
-                    if a.get("status", {}).get("state") != "active":
-                        continue
-                    fp = a.get("fingerprint")
-                    if not fp:
-                        continue
-                    current[fp] = a
-                    if db.get_alert_status(fp) != "firing":
-                        await _broadcast(_fmt_firing(a))
-                        db.upsert_alert(fp, "firing", a.get("labels", {}).get("alertname", "alert"))
-                for fp, name in db.list_firing_fingerprints():
-                    if fp not in current:
-                        await _broadcast(_fmt_resolved(name))
-                        db.upsert_alert(fp, "resolved", name)
-                db.purge_old_resolved()
+                await process_alerts(await _fetch_alerts(session))
+                await watchdog.ok()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 log.warning("alert poll failed: %s", e)
+                await watchdog.failed(str(e) or type(e).__name__)
             await asyncio.sleep(ALERT_POLL_SECONDS)
