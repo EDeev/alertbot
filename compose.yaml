@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    image: ghcr.io/edeev/alertbot:latest
+    env_file: .env
+    environment:
+      ALERTBOT_DB: /data/notifications.db
+      ALERTBOT_LOG_FILE: ""
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+volumes:
+  data:

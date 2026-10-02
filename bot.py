@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 
 from aiogram.types import BotCommand
@@ -7,11 +8,14 @@ from aiogram.types import BotCommand
 from init import bot, dp
 from handlers import router, alert_poller
 
+_log_handlers = [logging.StreamHandler(sys.stdout)]
+# File log is optional: in Docker set ALERTBOT_LOG_FILE= (empty) and read `docker logs`
+if os.environ.get("ALERTBOT_LOG_FILE", "bot.log"):
+    _log_handlers.append(logging.FileHandler(os.environ.get("ALERTBOT_LOG_FILE", "bot.log"), encoding="utf-8"))
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout),
-              logging.FileHandler('bot.log', encoding='utf-8')],
+    handlers=_log_handlers,
 )
 log = logging.getLogger(__name__)
 
