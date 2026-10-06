@@ -48,7 +48,7 @@ cp .env.example .env      # bot token, IDs, Prometheus/Alertmanager URLs and tok
 docker compose up -d
 ```
 
-Prebuilt image: `docker pull ghcr.io/edeev/alertbot` or `docker pull dcr.deev.su/edeev/alertbot`.
+Prebuilt image: `docker pull ghcr.io/edeev/alertbot` or `docker pull git.deev.su/edeev/alertbot`.
 
 ## Installing without Docker
 
@@ -81,7 +81,7 @@ python bot.py
 
 The bot runs on a separate VPS as a systemd unit. Prometheus and Alertmanager live on another server
 behind nginx, which lets the bot in only with a token. GitHub Actions builds the Docker image on every
-`v*` tag and publishes it to GitHub Packages and to `dcr.deev.su`.
+`v*` tag and publishes it to GitHub Packages and to `git.deev.su`.
 
 ## Development
 

@@ -48,7 +48,7 @@ cp .env.example .env      # токен бота, ID, адреса и токен�
 docker compose up -d
 ```
 
-Готовый образ: `docker pull ghcr.io/edeev/alertbot` или `docker pull dcr.deev.su/edeev/alertbot`.
+Готовый образ: `docker pull ghcr.io/edeev/alertbot` или `docker pull git.deev.su/edeev/alertbot`.
 
 ## Установка без Docker
 
@@ -81,7 +81,7 @@ python bot.py
 
 Бот работает на отдельном VPS как systemd-юнит. Prometheus и Alertmanager стоят на другом сервере
 за nginx, который пускает бота только с токеном. Docker-образ собирает GitHub Actions на каждый тег
-`v*` и публикует в GitHub Packages и в реестр `dcr.deev.su`.
+`v*` и публикует в GitHub Packages и в реестр `git.deev.su`.
 
 ## Разработка
 
